@@ -52,7 +52,7 @@ class FFmpegPostProcessor(PostProcessor):
 
     def _determine_executables(self):
         programs = ['avprobe', 'avconv', 'ffmpeg', 'ffprobe']
-        prefer_ffmpeg = self._downloader.params.get('prefer_ffmpeg', False)
+        prefer_ffmpeg = False
 
         self.basename = None
         self.probe_basename = None
@@ -60,6 +60,7 @@ class FFmpegPostProcessor(PostProcessor):
         self._paths = None
         self._versions = None
         if self._downloader:
+            prefer_ffmpeg = self._downloader.params.get('prefer_ffmpeg', False)
             location = self._downloader.params.get('ffmpeg_location')
             if location is not None:
                 if not os.path.exists(location):
@@ -272,7 +273,7 @@ class FFmpegExtractAudioPP(FFmpegPostProcessor):
             return [], information
 
         try:
-            self._downloader.to_screen('[' + self.basename + '] Destination: ' + new_path)
+            self._downloader.to_screen('[ffmpeg] Destination: ' + new_path)
             self.run_ffmpeg(path, new_path, acodec, more_opts)
         except AudioConversionError as e:
             raise PostProcessingError(

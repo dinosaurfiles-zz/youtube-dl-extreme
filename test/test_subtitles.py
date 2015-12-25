@@ -11,7 +11,6 @@ from test.helper import FakeYDL, md5
 
 
 from youtube_dl.extractor import (
-    BlipTVIE,
     YoutubeIE,
     DailymotionIE,
     TEDIE,
@@ -28,6 +27,7 @@ from youtube_dl.extractor import (
     ThePlatformFeedIE,
     RTVEALaCartaIE,
     FunnyOrDieIE,
+    DemocracynowIE,
 )
 
 
@@ -142,18 +142,6 @@ class TestTedSubtitles(BaseTestSubtitles):
         self.assertEqual(md5(subtitles['fr']), '66a63f7f42c97a50f8c0e90bc7797bb5')
         for lang in ['es', 'fr', 'de']:
             self.assertTrue(subtitles.get(lang) is not None, 'Subtitles for \'%s\' not extracted' % lang)
-
-
-class TestBlipTVSubtitles(BaseTestSubtitles):
-    url = 'http://blip.tv/a/a-6603250'
-    IE = BlipTVIE
-
-    def test_allsubtitles(self):
-        self.DL.params['writesubtitles'] = True
-        self.DL.params['allsubtitles'] = True
-        subtitles = self.getSubtitles()
-        self.assertEqual(set(subtitles.keys()), set(['en']))
-        self.assertEqual(md5(subtitles['en']), '5b75c300af65fe4476dff79478bb93e4')
 
 
 class TestVimeoSubtitles(BaseTestSubtitles):
@@ -344,6 +332,26 @@ class TestFunnyOrDieSubtitles(BaseTestSubtitles):
         subtitles = self.getSubtitles()
         self.assertEqual(set(subtitles.keys()), set(['en']))
         self.assertEqual(md5(subtitles['en']), 'c5593c193eacd353596c11c2d4f9ecc4')
+
+
+class TestDemocracynowSubtitles(BaseTestSubtitles):
+    url = 'http://www.democracynow.org/shows/2015/7/3'
+    IE = DemocracynowIE
+
+    def test_allsubtitles(self):
+        self.DL.params['writesubtitles'] = True
+        self.DL.params['allsubtitles'] = True
+        subtitles = self.getSubtitles()
+        self.assertEqual(set(subtitles.keys()), set(['en']))
+        self.assertEqual(md5(subtitles['en']), 'acaca989e24a9e45a6719c9b3d60815c')
+
+    def test_subtitles_in_page(self):
+        self.url = 'http://www.democracynow.org/2015/7/3/this_flag_comes_down_today_bree'
+        self.DL.params['writesubtitles'] = True
+        self.DL.params['allsubtitles'] = True
+        subtitles = self.getSubtitles()
+        self.assertEqual(set(subtitles.keys()), set(['en']))
+        self.assertEqual(md5(subtitles['en']), 'acaca989e24a9e45a6719c9b3d60815c')
 
 
 if __name__ == '__main__':

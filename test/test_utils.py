@@ -21,6 +21,8 @@ from youtube_dl.utils import (
     clean_html,
     DateRange,
     detect_exe_version,
+    determine_ext,
+    encode_compat_str,
     encodeFilename,
     escape_rfc3986,
     escape_url,
@@ -42,6 +44,7 @@ from youtube_dl.utils import (
     sanitize_path,
     prepend_extension,
     replace_extension,
+    remove_quotes,
     shell_quote,
     smuggle_url,
     str_to_int,
@@ -67,6 +70,9 @@ from youtube_dl.utils import (
     cli_option,
     cli_valueless_option,
     cli_bool_option,
+)
+from youtube_dl.compat import (
+    compat_etree_fromstring,
 )
 
 
@@ -196,6 +202,15 @@ class TestUtil(unittest.TestCase):
         self.assertEqual(replace_extension('.abc', 'temp'), '.abc.temp')
         self.assertEqual(replace_extension('.abc.ext', 'temp'), '.abc.temp')
 
+    def test_remove_quotes(self):
+        self.assertEqual(remove_quotes(None), None)
+        self.assertEqual(remove_quotes('"'), '"')
+        self.assertEqual(remove_quotes("'"), "'")
+        self.assertEqual(remove_quotes(';'), ';')
+        self.assertEqual(remove_quotes('";'), '";')
+        self.assertEqual(remove_quotes('""'), '')
+        self.assertEqual(remove_quotes('";"'), ';')
+
     def test_ordered_set(self):
         self.assertEqual(orderedSet([1, 1, 2, 3, 4, 4, 5, 6, 7, 3, 5]), [1, 2, 3, 4, 5, 6, 7])
         self.assertEqual(orderedSet([]), [])
@@ -207,8 +222,8 @@ class TestUtil(unittest.TestCase):
         self.assertEqual(unescapeHTML('%20;'), '%20;')
         self.assertEqual(unescapeHTML('&#x2F;'), '/')
         self.assertEqual(unescapeHTML('&#47;'), '/')
-        self.assertEqual(
-            unescapeHTML('&eacute;'), 'é')
+        self.assertEqual(unescapeHTML('&eacute;'), 'é')
+        self.assertEqual(unescapeHTML('&#2013266066;'), '&#2013266066;')
 
     def test_daterange(self):
         _20century = DateRange("19000101", "20000101")
@@ -233,6 +248,14 @@ class TestUtil(unittest.TestCase):
             unified_strdate('2/2/2015 6:47:40 PM', day_first=False),
             '20150202')
         self.assertEqual(unified_strdate('25-09-2014'), '20140925')
+        self.assertEqual(unified_strdate('UNKNOWN DATE FORMAT'), None)
+
+    def test_determine_ext(self):
+        self.assertEqual(determine_ext('http://example.com/foo/bar.mp4/?download'), 'mp4')
+        self.assertEqual(determine_ext('http://example.com/foo/bar/?download', None), None)
+        self.assertEqual(determine_ext('http://example.com/foo/bar.nonext/?download', None), None)
+        self.assertEqual(determine_ext('http://example.com/foo/bar/mp4?download', None), None)
+        self.assertEqual(determine_ext('http://example.com/foo/bar.m3u8//?download'), 'm3u8')
 
     def test_find_xpath_attr(self):
         testxml = '''<root>
@@ -242,7 +265,7 @@ class TestUtil(unittest.TestCase):
             <node x="b" y="d" />
             <node x="" />
         </root>'''
-        doc = xml.etree.ElementTree.fromstring(testxml)
+        doc = compat_etree_fromstring(testxml)
 
         self.assertEqual(find_xpath_attr(doc, './/fourohfour', 'n'), None)
         self.assertEqual(find_xpath_attr(doc, './/fourohfour', 'n', 'v'), None)
@@ -263,7 +286,7 @@ class TestUtil(unittest.TestCase):
                 <url>http://server.com/download.mp3</url>
             </media:song>
         </root>'''
-        doc = xml.etree.ElementTree.fromstring(testxml)
+        doc = compat_etree_fromstring(testxml)
         find = lambda p: doc.find(xpath_with_ns(p, {'media': 'http://example.com/'}))
         self.assertTrue(find('media:song') is not None)
         self.assertEqual(find('media:song/media:author').text, 'The Author')
@@ -275,9 +298,16 @@ class TestUtil(unittest.TestCase):
         p = xml.etree.ElementTree.SubElement(div, 'p')
         p.text = 'Foo'
         self.assertEqual(xpath_element(doc, 'div/p'), p)
+        self.assertEqual(xpath_element(doc, ['div/p']), p)
+        self.assertEqual(xpath_element(doc, ['div/bar', 'div/p']), p)
         self.assertEqual(xpath_element(doc, 'div/bar', default='default'), 'default')
+        self.assertEqual(xpath_element(doc, ['div/bar'], default='default'), 'default')
         self.assertTrue(xpath_element(doc, 'div/bar') is None)
+        self.assertTrue(xpath_element(doc, ['div/bar']) is None)
+        self.assertTrue(xpath_element(doc, ['div/bar'], 'div/baz') is None)
         self.assertRaises(ExtractorError, xpath_element, doc, 'div/bar', fatal=True)
+        self.assertRaises(ExtractorError, xpath_element, doc, ['div/bar'], fatal=True)
+        self.assertRaises(ExtractorError, xpath_element, doc, ['div/bar', 'div/baz'], fatal=True)
 
     def test_xpath_text(self):
         testxml = '''<root>
@@ -285,7 +315,7 @@ class TestUtil(unittest.TestCase):
                 <p>Foo</p>
             </div>
         </root>'''
-        doc = xml.etree.ElementTree.fromstring(testxml)
+        doc = compat_etree_fromstring(testxml)
         self.assertEqual(xpath_text(doc, 'div/p'), 'Foo')
         self.assertEqual(xpath_text(doc, 'div/bar', default='default'), 'default')
         self.assertTrue(xpath_text(doc, 'div/bar') is None)
@@ -297,7 +327,7 @@ class TestUtil(unittest.TestCase):
                 <p x="a">Foo</p>
             </div>
         </root>'''
-        doc = xml.etree.ElementTree.fromstring(testxml)
+        doc = compat_etree_fromstring(testxml)
         self.assertEqual(xpath_attr(doc, 'div/p', 'x'), 'a')
         self.assertEqual(xpath_attr(doc, 'div/bar', 'x'), None)
         self.assertEqual(xpath_attr(doc, 'div/p', 'y'), None)
@@ -420,11 +450,17 @@ class TestUtil(unittest.TestCase):
         data = urlencode_postdata({'username': 'foo@bar.com', 'password': '1234'})
         self.assertTrue(isinstance(data, bytes))
 
+    def test_encode_compat_str(self):
+        self.assertEqual(encode_compat_str(b'\xd1\x82\xd0\xb5\xd1\x81\xd1\x82', 'utf-8'), 'тест')
+        self.assertEqual(encode_compat_str('тест', 'utf-8'), 'тест')
+
     def test_parse_iso8601(self):
         self.assertEqual(parse_iso8601('2014-03-23T23:04:26+0100'), 1395612266)
         self.assertEqual(parse_iso8601('2014-03-23T22:04:26+0000'), 1395612266)
         self.assertEqual(parse_iso8601('2014-03-23T22:04:26Z'), 1395612266)
         self.assertEqual(parse_iso8601('2014-03-23T22:04:26.1234Z'), 1395612266)
+        self.assertEqual(parse_iso8601('2015-09-29T08:27:31.727'), 1443515251)
+        self.assertEqual(parse_iso8601('2015-09-29T08-27-31.727'), None)
 
     def test_strip_jsonp(self):
         stripped = strip_jsonp('cb ([ {"id":"532cb",\n\n\n"x":\n3}\n]\n);')
@@ -494,6 +530,9 @@ class TestUtil(unittest.TestCase):
         self.assertEqual(js_to_json(inp), '''{
             "playlist":[{"controls":{"all":null}}]
         }''')
+
+        inp = '''"The CW\\'s \\'Crazy Ex-Girlfriend\\'"'''
+        self.assertEqual(js_to_json(inp), '''"The CW's 'Crazy Ex-Girlfriend'"''')
 
         inp = '"SAND Number: SAND 2013-7800P\\nPresenter: Tom Russo\\nHabanero Software Training - Xyce Software\\nXyce, Sandia\\u0027s"'
         json_code = js_to_json(inp)
@@ -627,12 +666,13 @@ ffmpeg version 2.4.4 Copyright (c) 2000-2014 the FFmpeg ...'''), '2.4.4')
             {'like_count': 190, 'dislike_count': 10}))
 
     def test_parse_dfxp_time_expr(self):
-        self.assertEqual(parse_dfxp_time_expr(None), 0.0)
-        self.assertEqual(parse_dfxp_time_expr(''), 0.0)
+        self.assertEqual(parse_dfxp_time_expr(None), None)
+        self.assertEqual(parse_dfxp_time_expr(''), None)
         self.assertEqual(parse_dfxp_time_expr('0.1'), 0.1)
         self.assertEqual(parse_dfxp_time_expr('0.1s'), 0.1)
         self.assertEqual(parse_dfxp_time_expr('00:00:01'), 1.0)
         self.assertEqual(parse_dfxp_time_expr('00:00:01.100'), 1.1)
+        self.assertEqual(parse_dfxp_time_expr('00:00:01:100'), 1.1)
 
     def test_dfxp2srt(self):
         dfxp_data = '''<?xml version="1.0" encoding="UTF-8"?>
@@ -642,6 +682,9 @@ ffmpeg version 2.4.4 Copyright (c) 2000-2014 the FFmpeg ...'''), '2.4.4')
                     <p begin="0" end="1">The following line contains Chinese characters and special symbols</p>
                     <p begin="1" end="2">第二行<br/>♪♪</p>
                     <p begin="2" dur="1"><span>Third<br/>Line</span></p>
+                    <p begin="3" end="-1">Lines with invalid timestamps are ignored</p>
+                    <p begin="-1" end="-1">Ignore, two</p>
+                    <p begin="3" dur="-1">Ignored, three</p>
                 </div>
             </body>
             </tt>'''

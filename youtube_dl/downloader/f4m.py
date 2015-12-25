@@ -5,15 +5,17 @@ import io
 import itertools
 import os
 import time
-import xml.etree.ElementTree as etree
 
 from .fragment import FragmentFD
 from ..compat import (
+    compat_etree_fromstring,
     compat_urlparse,
     compat_urllib_error,
+    compat_urllib_parse_urlparse,
 )
 from ..utils import (
     encodeFilename,
+    fix_xml_ampersands,
     sanitize_open,
     struct_pack,
     struct_unpack,
@@ -285,9 +287,14 @@ class F4mFD(FragmentFD):
         man_url = info_dict['url']
         requested_bitrate = info_dict.get('tbr')
         self.to_screen('[%s] Downloading f4m manifest' % self.FD_NAME)
-        manifest = self.ydl.urlopen(man_url).read()
+        urlh = self.ydl.urlopen(man_url)
+        man_url = urlh.geturl()
+        # Some manifests may be malformed, e.g. prosiebensat1 generated manifests
+        # (see https://github.com/rg3/youtube-dl/issues/6215#issuecomment-121704244
+        # and https://github.com/rg3/youtube-dl/issues/7823)
+        manifest = fix_xml_ampersands(urlh.read().decode('utf-8', 'ignore')).strip()
 
-        doc = etree.fromstring(manifest)
+        doc = compat_etree_fromstring(manifest)
         formats = [(int(f.attrib.get('bitrate', -1)), f)
                    for f in self._get_unencrypted_media(doc)]
         if requested_bitrate is None:
@@ -329,20 +336,25 @@ class F4mFD(FragmentFD):
         if not live:
             write_metadata_tag(dest_stream, metadata)
 
+        base_url_parsed = compat_urllib_parse_urlparse(base_url)
+
         self._start_frag_download(ctx)
 
         frags_filenames = []
         while fragments_list:
             seg_i, frag_i = fragments_list.pop(0)
             name = 'Seg%d-Frag%d' % (seg_i, frag_i)
-            url = base_url + name
+            query = []
+            if base_url_parsed.query:
+                query.append(base_url_parsed.query)
             if akamai_pv:
-                url += '?' + akamai_pv.strip(';')
+                query.append(akamai_pv.strip(';'))
             if info_dict.get('extra_param_to_segment_url'):
-                url += info_dict.get('extra_param_to_segment_url')
+                query.append(info_dict['extra_param_to_segment_url'])
+            url_parsed = base_url_parsed._replace(path=base_url_parsed.path + name, query='&'.join(query))
             frag_filename = '%s-%s' % (ctx['tmpfilename'], name)
             try:
-                success = ctx['dl'].download(frag_filename, {'url': url})
+                success = ctx['dl'].download(frag_filename, {'url': url_parsed.geturl()})
                 if not success:
                     return False
                 (down, frag_sanitized) = sanitize_open(frag_filename, 'rb')

@@ -9,8 +9,8 @@ import sys
 from .common import InfoExtractor
 from .youtube import YoutubeIE
 from ..compat import (
+    compat_etree_fromstring,
     compat_urllib_parse_unquote,
-    compat_urllib_request,
     compat_urlparse,
     compat_xml_parse_error,
 )
@@ -21,7 +21,7 @@ from ..utils import (
     HEADRequest,
     is_html,
     orderedSet,
-    parse_xml,
+    sanitized_Request,
     smuggle_url,
     unescapeHTML,
     unified_strdate,
@@ -30,7 +30,10 @@ from ..utils import (
     url_basename,
     xpath_text,
 )
-from .brightcove import BrightcoveIE
+from .brightcove import (
+    BrightcoveLegacyIE,
+    BrightcoveNewIE,
+)
 from .nbc import NBCSportsVPlayerIE
 from .ooyala import OoyalaIE
 from .rutv import RUTVIE
@@ -41,7 +44,6 @@ from .myvi import MyviIE
 from .condenast import CondeNastIE
 from .udn import UDNEmbedIE
 from .senateisvp import SenateISVPIE
-from .bliptv import BlipTVIE
 from .svt import SVTIE
 from .pornhub import PornHubIE
 from .xhamster import XHamsterEmbedIE
@@ -51,6 +53,9 @@ from .onionstudios import OnionStudiosIE
 from .snagfilms import SnagFilmsEmbedIE
 from .screenwavemedia import ScreenwaveMediaIE
 from .mtv import MTVServicesEmbeddedIE
+from .pladform import PladformIE
+from .googledrive import GoogleDriveIE
+from .jwplatform import JWPlatformIE
 
 
 class GenericIE(InfoExtractor):
@@ -141,6 +146,7 @@ class GenericIE(InfoExtractor):
                 'ext': 'mp4',
                 'title': 'Automatics, robotics and biocybernetics',
                 'description': 'md5:815fc1deb6b3a2bff99de2d5325be482',
+                'upload_date': '20130627',
                 'formats': 'mincount:16',
                 'subtitles': 'mincount:1',
             },
@@ -274,7 +280,7 @@ class GenericIE(InfoExtractor):
         # it also tests brightcove videos that need to set the 'Referer' in the
         # http requests
         {
-            'add_ie': ['Brightcove'],
+            'add_ie': ['BrightcoveLegacy'],
             'url': 'http://www.bfmtv.com/video/bfmbusiness/cours-bourse/cours-bourse-l-analyse-technique-154522/',
             'info_dict': {
                 'id': '2765128793001',
@@ -298,7 +304,7 @@ class GenericIE(InfoExtractor):
                 'uploader': 'thestar.com',
                 'description': 'Mississauga resident David Farmer is still out of power as a result of the ice storm a month ago. To keep the house warm, Farmer cuts wood from his property for a wood burning stove downstairs.',
             },
-            'add_ie': ['Brightcove'],
+            'add_ie': ['BrightcoveLegacy'],
         },
         {
             'url': 'http://www.championat.com/video/football/v/87/87499.html',
@@ -313,7 +319,7 @@ class GenericIE(InfoExtractor):
         },
         {
             # https://github.com/rg3/youtube-dl/issues/3541
-            'add_ie': ['Brightcove'],
+            'add_ie': ['BrightcoveLegacy'],
             'url': 'http://www.kijk.nl/sbs6/leermijvrouwenkennen/videos/jqMiXKAYan2S/aflevering-1',
             'info_dict': {
                 'id': '3866516442001',
@@ -335,6 +341,7 @@ class GenericIE(InfoExtractor):
                 'id': 'BwY2RxaTrTkslxOfcan0UCf0YqyvWysJ',
                 'ext': 'mp4',
                 'title': '2cc213299525360.mov',  # that's what we get
+                'duration': 238.231,
             },
             'add_ie': ['Ooyala'],
         },
@@ -346,6 +353,7 @@ class GenericIE(InfoExtractor):
                 'ext': 'mp4',
                 'title': '"Steve Jobs: Man in the Machine" trailer',
                 'description': 'The first trailer for the Alex Gibney documentary "Steve Jobs: Man in the Machine."',
+                'duration': 135.427,
             },
             'params': {
                 'skip_download': True,
@@ -819,6 +827,19 @@ class GenericIE(InfoExtractor):
                 'title': 'Os Guinness // Is It Fools Talk? // Unbelievable? Conference 2014',
             },
         },
+        # Kaltura embed protected with referrer
+        {
+            'url': 'http://www.disney.nl/disney-channel/filmpjes/achter-de-schermen#/videoId/violetta-achter-de-schermen-ruggero',
+            'info_dict': {
+                'id': '1_g4fbemnq',
+                'ext': 'mp4',
+                'title': 'Violetta - Achter De Schermen - Ruggero',
+                'description': 'Achter de schermen met Ruggero',
+                'timestamp': 1435133761,
+                'upload_date': '20150624',
+                'uploader_id': 'echojecka',
+            },
+        },
         # Eagle.Platform embed (generic URL)
         {
             'url': 'http://lenta.ru/news/2015/03/06/navalny/',
@@ -943,8 +964,9 @@ class GenericIE(InfoExtractor):
             'info_dict': {
                 'id': '50YnY4czr4ms1vJ7yz3xzq0excz_pUMs',
                 'ext': 'mp4',
-                'description': 'VIDEO: Index/Match versus VLOOKUP.',
+                'description': 'VIDEO: INDEX/MATCH versus VLOOKUP.',
                 'title': 'This is what separates the Excel masters from the wannabes',
+                'duration': 191.933,
             },
             'params': {
                 # m3u8 downloads
@@ -1030,6 +1052,31 @@ class GenericIE(InfoExtractor):
                 'ext': 'mp4',
                 'title': 'cinemasnob',
             },
+        },
+        # BrightcoveInPageEmbed embed
+        {
+            'url': 'http://www.geekandsundry.com/tabletop-bonus-wils-final-thoughts-on-dread/',
+            'info_dict': {
+                'id': '4238694884001',
+                'ext': 'flv',
+                'title': 'Tabletop: Dread, Last Thoughts',
+                'description': 'Tabletop: Dread, Last Thoughts',
+                'duration': 51690,
+            },
+        },
+        # JWPlayer with M3U8
+        {
+            'url': 'http://ren.tv/novosti/2015-09-25/sluchaynyy-prohozhiy-poymal-avtougonshchika-v-murmanske-video',
+            'info_dict': {
+                'id': 'playlist',
+                'ext': 'mp4',
+                'title': 'Случайный прохожий поймал автоугонщика в Мурманске. ВИДЕО | РЕН ТВ',
+                'uploader': 'ren.tv',
+            },
+            'params': {
+                # m3u8 downloads
+                'skip_download': True,
+            }
         }
     ]
 
@@ -1173,7 +1220,7 @@ class GenericIE(InfoExtractor):
 
         full_response = None
         if head_response is False:
-            request = compat_urllib_request.Request(url)
+            request = sanitized_Request(url)
             request.add_header('Accept-Encoding', '*')
             full_response = self._request_webpage(request, video_id)
             head_response = full_response
@@ -1202,7 +1249,7 @@ class GenericIE(InfoExtractor):
                 '%s on generic information extractor.' % ('Forcing' if force else 'Falling back'))
 
         if not full_response:
-            request = compat_urllib_request.Request(url)
+            request = sanitized_Request(url)
             # Some webservers may serve compressed content of rather big size (e.g. gzipped flac)
             # making it impossible to download only chunk of the file (yet we need only 512kB to
             # test whether it's HTML or not). According to youtube-dl default Accept-Encoding
@@ -1237,7 +1284,7 @@ class GenericIE(InfoExtractor):
 
         # Is it an RSS feed, a SMIL file or a XSPF playlist?
         try:
-            doc = parse_xml(webpage)
+            doc = compat_etree_fromstring(webpage.encode('utf-8'))
             if doc.tag == 'rss':
                 return self._extract_rss(url, video_id, doc)
             elif re.match(r'^(?:{[^}]+})?smil$', doc.tag):
@@ -1289,14 +1336,14 @@ class GenericIE(InfoExtractor):
             return self.playlist_result(
                 urlrs, playlist_id=video_id, playlist_title=video_title)
 
-        # Look for BrightCove:
-        bc_urls = BrightcoveIE._extract_brightcove_urls(webpage)
+        # Look for Brightcove Legacy Studio embeds
+        bc_urls = BrightcoveLegacyIE._extract_brightcove_urls(webpage)
         if bc_urls:
             self.to_screen('Brightcove video detected.')
             entries = [{
                 '_type': 'url',
                 'url': smuggle_url(bc_url, {'Referer': url}),
-                'ie_key': 'Brightcove'
+                'ie_key': 'BrightcoveLegacy'
             } for bc_url in bc_urls]
 
             return {
@@ -1305,6 +1352,11 @@ class GenericIE(InfoExtractor):
                 'id': video_id,
                 'entries': entries,
             }
+
+        # Look for Brightcove New Studio embeds
+        bc_urls = BrightcoveNewIE._extract_urls(webpage)
+        if bc_urls:
+            return _playlist_from_matches(bc_urls, ie='BrightcoveNew')
 
         # Look for embedded rtl.nl player
         matches = re.findall(
@@ -1389,11 +1441,6 @@ class GenericIE(InfoExtractor):
                 'id': match.group('id')
             }
 
-        # Look for embedded blip.tv player
-        bliptv_url = BlipTVIE._extract_url(webpage)
-        if bliptv_url:
-            return self.url_result(bliptv_url, 'BlipTV')
-
         # Look for SVT player
         svt_url = SVTIE._extract_url(webpage)
         if svt_url:
@@ -1454,7 +1501,7 @@ class GenericIE(InfoExtractor):
                 re.search(r'SBN\.VideoLinkset\.ooyala\([\'"](?P<ec>.{32})[\'"]\)', webpage) or
                 re.search(r'data-ooyala-video-id\s*=\s*[\'"](?P<ec>.{32})[\'"]', webpage))
         if mobj is not None:
-            return OoyalaIE._build_url_result(mobj.group('ec'))
+            return OoyalaIE._build_url_result(smuggle_url(mobj.group('ec'), {'domain': url}))
 
         # Look for multiple Ooyala embeds on SBN network websites
         mobj = re.search(r'SBN\.VideoLinkset\.entryGroup\((\[.*?\])', webpage)
@@ -1462,7 +1509,7 @@ class GenericIE(InfoExtractor):
             embeds = self._parse_json(mobj.group(1), video_id, fatal=False)
             if embeds:
                 return _playlist_from_matches(
-                    embeds, getter=lambda v: OoyalaIE._url_for_embed_code(v['provider_video_id']), ie='Ooyala')
+                    embeds, getter=lambda v: OoyalaIE._url_for_embed_code(smuggle_url(v['provider_video_id'], {'domain': url})), ie='Ooyala')
 
         # Look for Aparat videos
         mobj = re.search(r'<iframe .*?src="(http://www\.aparat\.com/video/[^"]+)"', webpage)
@@ -1671,10 +1718,12 @@ class GenericIE(InfoExtractor):
             return self.url_result(mobj.group('url'), 'Zapiks')
 
         # Look for Kaltura embeds
-        mobj = (re.search(r"(?s)kWidget\.(?:thumb)?[Ee]mbed\(\{.*?'wid'\s*:\s*'_?(?P<partner_id>[^']+)',.*?'entry_id'\s*:\s*'(?P<id>[^']+)',", webpage) or
-                re.search(r'(?s)(["\'])(?:https?:)?//cdnapisec\.kaltura\.com/.*?(?:p|partner_id)/(?P<partner_id>\d+).*?\1.*?entry_id\s*:\s*(["\'])(?P<id>[^\2]+?)\2', webpage))
+        mobj = (re.search(r"(?s)kWidget\.(?:thumb)?[Ee]mbed\(\{.*?'wid'\s*:\s*'_?(?P<partner_id>[^']+)',.*?'entry_?[Ii]d'\s*:\s*'(?P<id>[^']+)',", webpage) or
+                re.search(r'(?s)(?P<q1>["\'])(?:https?:)?//cdnapi(?:sec)?\.kaltura\.com/.*?(?:p|partner_id)/(?P<partner_id>\d+).*?(?P=q1).*?entry_?[Ii]d\s*:\s*(?P<q2>["\'])(?P<id>.+?)(?P=q2)', webpage))
         if mobj is not None:
-            return self.url_result('kaltura:%(partner_id)s:%(id)s' % mobj.groupdict(), 'Kaltura')
+            return self.url_result(smuggle_url(
+                'kaltura:%(partner_id)s:%(id)s' % mobj.groupdict(),
+                {'source_url': url}), 'Kaltura')
 
         # Look for Eagle.Platform embeds
         mobj = re.search(
@@ -1689,10 +1738,9 @@ class GenericIE(InfoExtractor):
             return self.url_result('eagleplatform:%(host)s:%(id)s' % mobj.groupdict(), 'EaglePlatform')
 
         # Look for Pladform embeds
-        mobj = re.search(
-            r'<iframe[^>]+src="(?P<url>https?://out\.pladform\.ru/player\?.+?)"', webpage)
-        if mobj is not None:
-            return self.url_result(mobj.group('url'), 'Pladform')
+        pladform_url = PladformIE._extract_url(webpage)
+        if pladform_url:
+            return self.url_result(pladform_url)
 
         # Look for Playwire embeds
         mobj = re.search(
@@ -1717,9 +1765,14 @@ class GenericIE(InfoExtractor):
         if nbc_sports_url:
             return self.url_result(nbc_sports_url, 'NBCSportsVPlayer')
 
+        # Look for Google Drive embeds
+        google_drive_url = GoogleDriveIE._extract_url(webpage)
+        if google_drive_url:
+            return self.url_result(google_drive_url, 'GoogleDrive')
+
         # Look for UDN embeds
         mobj = re.search(
-            r'<iframe[^>]+src="(?P<url>%s)"' % UDNEmbedIE._VALID_URL, webpage)
+            r'<iframe[^>]+src="(?P<url>%s)"' % UDNEmbedIE._PROTOCOL_RELATIVE_VALID_URL, webpage)
         if mobj is not None:
             return self.url_result(
                 compat_urlparse.urljoin(url, mobj.group('url')), 'UDNEmbed')
@@ -1743,6 +1796,11 @@ class GenericIE(InfoExtractor):
         snagfilms_url = SnagFilmsEmbedIE._extract_url(webpage)
         if snagfilms_url:
             return self.url_result(snagfilms_url)
+
+        # Look for JWPlatform embeds
+        jwplatform_url = JWPlatformIE._extract_url(webpage)
+        if jwplatform_url:
+            return self.url_result(jwplatform_url, 'JWPlatform')
 
         # Look for ScreenwaveMedia embeds
         mobj = re.search(ScreenwaveMediaIE.EMBED_PATTERN, webpage)
@@ -1839,6 +1897,7 @@ class GenericIE(InfoExtractor):
 
         entries = []
         for video_url in found:
+            video_url = video_url.replace('\\/', '/')
             video_url = compat_urlparse.urljoin(url, video_url)
             video_id = compat_urllib_parse_unquote(os.path.basename(video_url))
 
@@ -1850,25 +1909,24 @@ class GenericIE(InfoExtractor):
             # here's a fun little line of code for you:
             video_id = os.path.splitext(video_id)[0]
 
+            entry_info_dict = {
+                'id': video_id,
+                'uploader': video_uploader,
+                'title': video_title,
+                'age_limit': age_limit,
+            }
+
             ext = determine_ext(video_url)
             if ext == 'smil':
-                entries.append({
-                    'id': video_id,
-                    'formats': self._extract_smil_formats(video_url, video_id),
-                    'uploader': video_uploader,
-                    'title': video_title,
-                    'age_limit': age_limit,
-                })
+                entry_info_dict['formats'] = self._extract_smil_formats(video_url, video_id)
             elif ext == 'xspf':
                 return self.playlist_result(self._extract_xspf_playlist(video_url, video_id), video_id)
+            elif ext == 'm3u8':
+                entry_info_dict['formats'] = self._extract_m3u8_formats(video_url, video_id, ext='mp4')
             else:
-                entries.append({
-                    'id': video_id,
-                    'url': video_url,
-                    'uploader': video_uploader,
-                    'title': video_title,
-                    'age_limit': age_limit,
-                })
+                entry_info_dict['url'] = video_url
+
+            entries.append(entry_info_dict)
 
         if len(entries) == 1:
             return entries[0]
